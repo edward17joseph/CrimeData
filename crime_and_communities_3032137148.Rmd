@@ -1,0 +1,244 @@
+---
+title: "Crime and Communities"
+output:
+  pdf_document: default
+  html_notebook: default
+  html_document: default
+---
+
+
+**Group Member 1 Name: **Edward Zamora  **Group Member 1 SID: **3032137148
+
+
+The crime and communities dataset contains crime data from communities in the United States. The data combines socio-economic data from the 1990 US Census, law enforcement data from the 1990 US LEMAS survey, and crime data from the 1995 FBI UCR. More details can be found at https://archive.ics.uci.edu/ml/datasets/Communities+and+Crime+Unnormalized.
+
+The dataset contains 125 columns total; $p=124$ predictive and 1 target (ViolentCrimesPerPop). There are $n=1994$ observations. These can be arranged into an $n \times p = 1994 \times 127$ feature matrix $\mathbf{X}$, and an $n\times 1 = 1994 \times 1$ response vector $\mathbf{y}$ (containing the observations of ViolentCrimesPerPop).
+
+Once downloaded (from bCourses), the data can be loaded as follows.
+
+```{r}
+library(readr)
+library(randomForest)
+CC <- read_csv("crime_and_communities_data.csv")
+print(dim(CC))
+y <- CC$ViolentCrimesPerPop
+X <- subset(CC, select = -c(ViolentCrimesPerPop))
+```
+
+# Dataset exploration
+
+In this section, you should provide a thorough exploration of the features of the dataset. Things to keep in mind in this section include:
+
+- Which variables are categorical versus numerical?
+- What are the general summary statistics of the data? How can these be visualized?
+- Is the data normalized? Should it be normalized?
+- Are there missing values in the data? How should these missing values be handled? 
+- Can the data be well-represented in fewer dimensions?
+
+```{r}
+str(X)
+```
+
+The first part of my regression analysis is to make sure there are no abnormalities in the data that should be accounted for. Evaluating the structure of my data, I can see whether or not there are any categorical variables that must be handled before a quantitaive analysis is performed. From the summary above, no such variables exist.
+
+
+```{r}
+colSums(!is.na(X))[colSums(!is.na(X))!=1994]
+
+#without na columns
+X <- as.matrix(X[,colSums(is.na(X))<2])
+X[is.na(X)] <- 0
+```
+
+The next part of fixing my data before analysis is handling na values. There are several ways that I considered handling these values: removing data points with na values, removing predictors with na values, or setting all na values to 0. As you can see in the data above depicting the number of non na values present in each column that has at least one na value, there are a significant number of rows containing some na value so removing those data points is not a viable option. Similarly, since these values are so pervasive within these columns, setting them to 0 would offer me not much benefit in the way of prediction, therefore I chose to omit the predictors entirely. However, one predictor column only had one missing value. In this case, rather than completely omitting this predictor, I replaced the missing value with 0 since it would likely add little distortion.
+
+```{r}
+boxplot(X)
+X <- scale(X)
+boxplot(X)
+```
+
+I then decided whether or not the data needed to be scaled. In looking at the labels of the data, there appeared to be a clear difference in values as some predictors involved perentages while others did not. To verify that scaling was necessary, I plotted the boxplots of each predictor side by side and determined that several of the predictor values were inherently much larger than others and would therefore skew the data. Once I scaled the data, the boxplots normalized and I proceeded with my analysis.
+
+###PCA
+```{r}
+pca <- prcomp(X,scale. = FALSE,center = FALSE)
+pca$sdev
+plot(pca$sdev)
+```
+
+Before regressing, I verified whether or not it was possible to reduce the dimensions of my data in any significant way. To do so, I performed PCA on my data and then determined the proper nomber of PCs to utilize. I cosidered multiple ways to determine the number of PCs from the data such as finding where the "elbow" of my standard deviation graph was, but I decided to use a threshhold value of .7 instead since more stringent determinations explained much less variance. In this method, the 27 PCs explained almost 70% of the data's variance.
+
+###Understanding PCA
+```{r, echo=FALSE}
+table(colnames(X)[apply(pca$rotation, 2,order)[100:102,1:27]])
+```
+
+Now that the PCs have been calculated, it would be helpful to interperet them, at least generally. Looking at a table of the predictors with the top 3 higest coefficients in each of the first 27 PCs, we can see that some factors are weighted higher in determining the number of violent crimes in a given setting. It appears that urban populations tend to be the main sites of these crime with most being related to drugs in some way. Additionally, there appears to be a higher tendency for these crimes to be perpetrated by Hispanic and Black individuals.
+
+# Regression task
+
+In this section, you should use the techniques learned in class to develop a model to predict ViolentCrimesPerPop using the 124 features (or some subset of them) stored in $\mathbf{X}$. Remember that you should try several different methods, and use model selection methods to determine which model is best. You should also be sure to keep a held-out test set to evaluate the performance of your model. 
+
+```{r}
+train <- sample(1994,1994*.7)
+test <- c(1:1994)[-train][sample(1994*.3,1994*.15)]
+validation <- c(1:1994)[-c(train,test)]
+```
+
+Before I began my actual regression, I performed a 3 way split of the data: the training set to fit my models, the validation set to choose which model performed best, and a test set to estimate the true error rate of my data. In my evaluations, I utilized the standard MSE value to determine which models were most accurate.
+
+```{r}
+X_train <- X[train,]
+y_train <- y[train]
+```
+
+### OLS
+
+```{r}
+ols_mod <- lm(y_train~.,data.frame(X_train,y_train))
+
+predictions <- predict(ols_mod,data.frame(X[validation,],y[validation]))
+mean((predictions-y[validation])^2)
+```
+
+The first model I attempted was an ordinary least squares approach of the data on all of the predictors offered. However, a negative effect of this model is that I learned nothing about what predictors were most important. In comparison to the models used later, the OLS was fairly accurate in its predictions.
+
+###PCR
+```{r}
+pca <- prcomp(X_train,scale. = FALSE,center = FALSE)
+
+pcaols_mod <- lm(y_train~.,data.frame(pca$x[,1:27],y_train))
+
+pcapredict <- predict(pcaols_mod ,data.frame(X[validation,]%*%pca$rotation[,1:27],y[validation]))
+mean((pcapredict-y[validation])^2)
+```
+
+The second method I attempted was PCR using an OLS approach for the main regression. Using the 27 PCs I determined to be of greatest importance in the exploratory analysis, I found the PCR to be a noticeable improvement upon the normal OLS method when predicting on our validation data.
+
+
+###PLS
+
+####CV
+```{r, echo=FALSE}
+crime <- data.frame(X_train,y_train)
+shuffle <- sample(nrow(X_train),nrow(X_train))
+cv <- c()
+for (r in 1:10){
+  acc <- c()
+  for (i in 1:5){
+    fold <- sort(shuffle[-((279*i-278):(279*i))])
+    x <- as.matrix(X_train[fold,])
+    Y <- as.matrix(y_train[fold]) 
+    z <- matrix(nrow = nrow(x) ,ncol = r) #components
+    w <- matrix(0,nrow = ncol(x),ncol = r) #wights
+    b <- matrix(0,nrow = 1, ncol = r) #coefficients
+    p <- matrix(0,nrow = ncol(x), ncol = r) #loadings
+    for (h in 1:r){ 
+      w[,h] <- (t(x)%*%Y)/(t(Y)%*%Y)[1]
+      w[,h] <- w[,h]/sqrt(sum(w[,h]^2))
+      z[,h] <- x%*%w[,h]
+      p[,h] <- t(x)%*%z[,h]/(t(z[,h])%*%z[,h])[1]
+      b[,h] <- t(Y)%*%z[,h]/(t(z[,h])%*%z[,h])[1]
+      x <- x-z[,h]%*%t(p[,h])
+      Y <- Y-t(b[,h]%*%z[,h])
+    }
+    acc <- append(acc,mean((X_train[-fold,]%*%p%*%t(b)-y_train[-fold])^2))
+  }
+  cv <- append(cv,mean(acc))
+}
+
+order(cv)
+```
+
+The third method I used was a PLS regression on the training data. In order to determine the number of PLS components optimal for my regression, I used a 5 fold cross validation to find that the MSE was minimized using only 3 components. (In my cv, I have r only extending to 10. This is because the cv process was very computationally heavy and the MSE for higher values significantly increased.)
+
+```{r}
+x <- as.matrix(X_train)
+Y <- as.matrix(y_train) 
+r <- 3
+z <- matrix(nrow = nrow(x) ,ncol = r) #components
+w <- matrix(0,nrow = ncol(x),ncol = r) #wights
+b <- matrix(0,nrow = 1, ncol = r) #coefficients
+p <- matrix(0,nrow = ncol(x), ncol = r) #loadings
+for (h in 1:r){ 
+  w[,h] <- (t(x)%*%Y)/(t(Y)%*%Y)[1]
+  w[,h] <- w[,h]/sqrt(sum(w[,h]^2))
+  z[,h] <- x%*%w[,h]
+  p[,h] <- t(x)%*%z[,h]/(t(z[,h])%*%z[,h])[1]
+  b[,h] <- t(Y)%*%z[,h]/(t(z[,h])%*%z[,h])[1]
+  x <- x-z[,h]%*%t(p[,h])
+  Y <- Y-t(b[,h]%*%z[,h])
+}
+```
+
+####MSE
+```{r, echo=FALSE}
+mean((X[validation,]%*%p%*%t(b)-y[validation])^2)
+```
+
+PLS offered no significant advantage in comparison to PCR and even OLS when evaluated on the validation data. In fact, it performed much worse than all the models constructed on the training data so it is not useful for prediction in this instance.
+
+### Random Forest
+```{r, echo=FALSE}
+crime <- data.frame(X_train,y_train)
+shuffle <- sample(nrow(X_train),nrow(X_train))
+cv <- c()
+for (m in 11:12){
+  acc <- c()
+  for (i in 1:5){
+    fold <- sort(shuffle[-((279*i-278):(279*i))])
+    forest.crime =randomForest(y_train~.,crime[fold,],mtry=m,ntree=300)
+    acc <- append(acc,mean((predict(forest.crime,crime[-fold,])-y_train[-fold])^2))
+  }
+  cv <- append(cv,mean(acc))
+}
+
+cv
+```
+
+
+```{r}
+forest.crime =randomForest(y_train~.,crime,mtry=11,ntree=300)
+mean((predict(forest.crime,data.frame(X,y)[validation,])-y[validation])^2)
+```
+
+The last parametric model I attempted was a random forest regression. I used a random forest in place of a normal decision tree to aid its prediction values. According to standard practice, I set the number of random predictors that the model would look at to be the square root of the total number of predictors. However, I found that, since the number calculated wasn't an integer, I would perform cross validation to determine which value should be used. Once determined, I modeled a random forest based on my training data and predicted using the validation data. This method offered the lowest MSE with a competitive runtime in comparison to the previous models.
+
+####Understanding Random Forest
+
+```{r, echo=FALSE}
+rownames(forest.crime$importance)[order(forest.crime$importance, decreasing = TRUE)][1:10]
+```
+
+Based on the values returned by the random forest, the top 10 most important fators in violent crimes can be seen above. Interestingly, family life appears to play a significant part in determining the number of violent crimes in a population as several factors pertain to number of children or size of the family. As in the the PCA, the number of black individuals in a population is a contributing factor to crime. More interesting, the number of white people plays an even more significant part. I assume this did not appear in the PCs as I was only filtering for positive values, or values that increased arrests, therefore it could be assumed that areas of more white people have less arrests. Still, this is not to say tht white individuals commit more crimes, simply that they ae arrested less.
+
+###Non Parametric Method
+
+```{r}
+kNNR <-function(z,k){
+  yhat =c()
+  for(i in 1:nrow(z)){
+    ix =sort(rowSums((pca$x[,1:27]-matrix(rep(z[i,], nrow(pca$x[,1:27])), 
+                                          nrow = nrow(pca$x[,1:27]), 
+                                          byrow = TRUE))^2), index.return = TRUE)$ix
+    ix = ix[1:k]
+    ynn = y_train[ix]
+    yhat =c(yhat,mean(ynn))
+    }
+  return(yhat)
+}
+
+z=X[validation,]%*%pca$rotation[,1:27]
+yhat =kNNR(z,k=10)
+sum((yhat-y[validation])^2)
+```
+
+The last method I attempted was a nonparametric method of K nearest neighbors. In this method, I simply averaged out the the response values of the closest neighbors of the point I was attempting to predict for. Using cross validation, I set the number of neighbors to 10, though this method only offered a slight improvement to the MSE in comparison to the worst model, the PLS regression, and so this too was not a viable option.
+
+Based on the resulting MSEs, it appears that the Random Forest is the best model in terms of both prediction accuracy and computation time for the given data. The final prediction accuracy can be finally calculated using the constructed model and testing data.
+
+###Final Evaluation Using Rndom Forest
+```{r}
+mean((predict(forest.crime,data.frame(X,y)[test,])-y[test])^2)
+```
